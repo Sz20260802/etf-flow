@@ -69,8 +69,9 @@ def maybe_sync() -> str | None:
     if not remote:
         return None                          # 定时任务还没跑过，用本地种子库
     local = _local_share_date()
-    if local >= remote:
-        return None                          # 已是最新
+    # 强制重新下载，清除可能残留的旧数据库
+    # if local >= remote:
+    #     return None                          # 已是最新
 
     if LOCK.exists() and time.time() - LOCK.stat().st_mtime < 1200:
         return "数据同步进行中（另一会话），稍后刷新"

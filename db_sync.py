@@ -54,6 +54,9 @@ def _download(name: str) -> bool:
                 for chunk in r.iter_content(4 << 20):
                     f.write(chunk)
         os.replace(tmp, DATA_DIR / name)
+        # 同时复制到根目录，兼容应用代码可能的路径
+        import shutil
+        shutil.copy2(DATA_DIR / name, BASE_DIR / name)
         return True
     except Exception:
         tmp.unlink(missing_ok=True)

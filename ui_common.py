@@ -34,10 +34,13 @@ def render_sidebar() -> None:
             st.caption(f"份额数据：{d1 or '—'} ｜ 行情数据：{d2 or '—'}")
             if "auto_update_checked" not in st.session_state:
                 st.session_state["auto_update_checked"] = True
-                from daily_update import check_and_auto_update
-                msg = check_and_auto_update()
+                from db_sync import maybe_sync
+                with st.spinner("检查远程数据更新…"):
+                    msg = maybe_sync()
                 if msg:
                     st.caption(f"🔄 {msg}")
+                    if msg.startswith("✅"):
+                        st.rerun()   # 新库已就位，重载页面数据
         except Exception:
             st.caption("数据库未初始化")
 

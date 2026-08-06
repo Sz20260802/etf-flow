@@ -7,10 +7,12 @@
 读代码零改动；写入 etf_quote_daily 时自动路由到 quotes 库。
 
 ⚠️ 日志模式（重要，勿改回 WAL）：
-  - 本模块与 schema.sql 必须保持 DELETE 日志模式并禁用 mmap
-    （PRAGMA mmap_size=0）。Streamlit Cloud 的临时文件系统对 SQLite WAL
-    的共享内存（-shm）mmap 支持不稳定，会触发 SIGBUS（Bus error）导致
-    应用整体崩溃（本项目线上已实测踩坑，2026-08-06）。
+  - Streamlit Cloud 的临时文件系统对 SQLite WAL 的共享内存（-shm）mmap
+    支持不稳定，会触发 SIGBUS（Bus error）导致应用整体崩溃
+    （本项目线上已实测踩坑，2026-08-06）。
+  - 因此统一使用 DELETE 日志模式 + 禁用 mmap（PRAGMA mmap_size=0）。
+  - 本函数在 schema 执行【之前】和【之后】各强制一次，防止 schema.sql
+    里的 PRAGMA 又把模式改回 WAL。
   - 设计口径见 ARCHITECTURE.md："WAL 之外的 DELETE 日志模式"。
 """
 import sqlite3
@@ -37,22 +39,34 @@ CREATE INDEX IF NOT EXISTS idx_quote_date ON etf_quote_daily(trade_date);
 
 
 def _safe_pragmas(conn: sqlite3.Connection) -> None:
-    """设置与 Streamlit Cloud 文件系统兼容的 SQLite 参数。
+    """强制与 Streamlit Cloud 文件系统兼容的 SQLite 参数（全部 try/except 兜底）。
 
-    - journal_mode=DELETE：不用 WAL（WAL 的 -shm 共享内存在挂载盘上
-      会触发 Bus error / SIGBUS 崩溃，见模块 docstring）
-    - mmap_size=0：禁用内存映射读，避免访问被截断/不完整文件时 SIGBUS
-    - busy_timeout：多会话并发时等待而不是立刻报"数据库被锁"
+    - journal_mode=DELETE：不用 WAL（WAL 的 -shm 共享内存在挂载盘上会触发
+      Bus error / SIGBUS，见模块 docstring）
+    - mmap_size=0：禁用内存映射读，避免访问不完整文件时 SIGBUS
+    - busy_timeout：多会话并发时等待，而不是立刻报"数据库被锁"
     """
-    conn.execute("PRAGMA journal_mode = DELETE;").fetchone()
-    conn.execute("PRAGMA mmap_size = 0;").fetchone()
-    conn.execute("PRAGMA busy_timeout = 30000;").fetchone()
+    for pragma in (
+        "PRAGMA journal_mode = DELETE;",
+        "PRAGMA mmap_size = 0;",
+        "PRAGMA busy_timeout = 30000;",
+    ):
+        try:
+            conn.execute(pragma).fetchone()
+        except sqlite3.Error:
+            pass
+    # 挂载的行情库也切 DELETE（老库可能残留 WAL，需在 ATTACH 之后才能设置）
+    for pragma in ("PRAGMA q.journal_mode = DELETE;", "PRAGMA q.mmap_size = 0;"):
+        try:
+            conn.execute(pragma).fetchone()
+        except sqlite3.Error:
+            pass
 
 
 def get_conn() -> sqlite3.Connection:
     """获取数据库连接。schema 全部使用 IF NOT EXISTS，每次调用幂等执行。"""
     conn = sqlite3.connect(DB_PATH)
-    _safe_pragmas(conn)
+    _safe_pragmas(conn)                      # ① 先强制一次（主库）
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
     # 行情库挂载 + 透明视图
     conn.execute(f"ATTACH DATABASE '{QUOTES_DB}' AS q")
@@ -63,6 +77,7 @@ def get_conn() -> sqlite3.Connection:
         "CREATE INDEX IF NOT EXISTS q.idx_quote_date"))
     conn.execute("CREATE TEMP VIEW IF NOT EXISTS etf_quote_daily AS "
                  "SELECT * FROM q.etf_quote_daily")
+    _safe_pragmas(conn)                      # ② schema 执行后再强制一次（压住 WAL）
     return conn
 
 

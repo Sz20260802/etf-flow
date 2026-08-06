@@ -6,10 +6,15 @@
   - 交易日下午 15:30 后执行才有当日数据；非交易日执行则各源返回空，属正常
 
 用法：
-    python3 daily_update.py            # 完整更新
+    python3 daily_update.py            # 完整更新（增量，幂等）
+    python3 daily_update.py --full     # 全量回填：档案/K线/净值 全量，随后仍走增量流水线
     python3 daily_update.py --check    # 只检查"今天是否需要更新"，不执行
 
 也被 app.py 调用：云端部署时实例唤醒后自动补更（见 check_and_auto_update）。
+
+每日 STEPS 已含持仓权重与债券补全（用户确认 2026-07-30：进流水线自动计算）：
+  collect_holdings 幂等，逐只抓重仓约 6~7 分钟，失败仅跳单只不中断；
+  collect_bond_etf 仅 1 次请求 + 少量 UPDATE，成本可忽略。
 """
 from __future__ import annotations
 
@@ -46,6 +51,8 @@ STEPS = [
     ("份额快照(东财)",        "collectors.collect_spot", "run"),
     ("日K线(新浪,增量)",      "collectors.collect_kline", "run"),
     ("净值(东财pingzhong)",   None, "nav_incremental"),          # 自定义：只补缺
+    ("持仓权重(中证+东财)",   "collectors.collect_holdings", "run"),
+    ("债券ETF补全(天天基金)", "collectors.collect_bond_etf", "run"),
     ("指数估值(乐咕)",        "collectors.collect_index_val", "run"),
     ("科创50PE(中证)",        "collectors.collect_index_val", "run_kcb_pe"),
     ("期权VIX(QVIX)",         "collectors.collect_index_val", "run_vix"),
@@ -124,11 +131,42 @@ def run_all() -> list[tuple[str, str]]:
     return results
 
 
+def _full_backfill() -> list[tuple[str, str]]:
+    """一次性全量回填：档案 + K线 + 净值 全量（持仓/债券由后续 run_all() 自动跑）。"""
+    from db.database import query
+    from collectors import collect_spot, collect_kline, collect_nav
+    steps = [
+        ("份额快照+基金档案(东财)", lambda: collect_spot.run()),
+        ("日K线全量回填(新浪)", lambda: collect_kline.run(incremental=False)),
+        ("净值全量回填(东财)",
+         lambda: collect_nav.run(query("SELECT code FROM etf_info")["code"].tolist())),
+    ]
+    results = []
+    for name, fn in steps:
+        t0 = time.time()
+        try:
+            out = fn()
+            results.append((name, f"✅ {out} ({time.time()-t0:.0f}s)"))
+        except Exception as e:
+            traceback.print_exc()
+            results.append((name, f"❌ {e!r:.100}"))
+    return results
+
+
 def ensure_quotes_db() -> str | None:
-    """云端首启兜底：行情库缺失时后台全量回填（约 20-30 分钟，一次性）。"""
-    from db.database import QUOTES_DB
+    """云端首启兜底：行情库为空时后台全量回填（约 20-30 分钟，一次性）。
+
+    注意：database.get_conn() 连接时会自动 ATTACH 并创建空 quotes.db，
+    因此不能以"文件存在"判断——改为按行情表行数判断。
+    """
+    from db.database import QUOTES_DB, query
     if QUOTES_DB.exists():
-        return None
+        try:
+            n = query("SELECT COUNT(*) n FROM etf_quote_daily")["n"][0]
+            if n > 0:
+                return None
+        except Exception:
+            return None
     import threading
     def _bg():
         try:
@@ -137,7 +175,7 @@ def ensure_quotes_db() -> str | None:
         except Exception:
             traceback.print_exc()
     threading.Thread(target=_bg, daemon=True).start()
-    return "行情库缺失，后台全量回填中（约 20-30 分钟，仅首次）"
+    return "行情库为空，后台全量回填中（约 20-30 分钟，仅首次）"
 
 
 def check_and_auto_update() -> str | None:
@@ -152,12 +190,6 @@ def check_and_auto_update() -> str | None:
     threading.Thread(target=_bg, daemon=True).start()
     upd = f"检测到新交易日（份额数据截至 {last_share_date()}），后台自动更新已启动"
     return f"{msg}；{upd}" if msg else upd
-    import threading
-    def _bg():
-        for r in run_all():
-            print(r)
-    threading.Thread(target=_bg, daemon=True).start()
-    return f"检测到新交易日（份额数据截至 {last_share_date()}），后台自动更新已启动"
 
 
 if __name__ == "__main__":
@@ -165,6 +197,11 @@ if __name__ == "__main__":
         print("需要更新" if need_update() else "已是最新")
         sys.exit(0 if not need_update() else 1)
     print(f"[daily_update] {dt.datetime.now():%Y-%m-%d %H:%M} 开始")
+    if "--full" in sys.argv:
+        print("[daily_update] 全量回填阶段")
+        for name, res in _full_backfill():
+            print(f"  {name}: {res}")
+        print("[daily_update] 全量回填完成，继续增量流水线")
     for name, res in run_all():
         print(f"  {name}: {res}")
     print("[daily_update] 结束")

@@ -55,16 +55,36 @@ STEPS = [
 
 
 def _nav_incremental() -> str:
-    """只给缺净值的 ETF 补（新上市的会被自动纳入）。"""
-    from db.database import query
+    """净值日更：新 ETF 全量补 + 全部 ETF 刷新近 10 天 + 收盘价兜底。
+
+    基金净值当晚才公布，而份额快照当天即有；最新一天用收盘价近似净值，
+    保证当日资金流可算，次日净值公布后被自动覆盖修正。
+    """
+    from db.database import query, get_conn
     from collectors import collect_nav
+    msgs = []
+    # 1) 还没有任何净值的 ETF（新上市等）全量回填
     codes = query(
         "SELECT code FROM etf_info WHERE code NOT IN "
         "(SELECT DISTINCT code FROM etf_share_daily WHERE nav IS NOT NULL)")["code"].tolist()
-    if not codes:
-        return "无需补充"
-    collect_nav.run(codes)
-    return f"补 {len(codes)} 只"
+    if codes:
+        collect_nav.run(codes)
+        msgs.append(f"新补 {len(codes)} 只")
+    # 2) 全部 ETF 刷新近 10 天净值（INSERT/UPDATE 幂等）
+    all_codes = query("SELECT code FROM etf_info")["code"].tolist()
+    start = (dt.date.today() - dt.timedelta(days=10)).isoformat()
+    collect_nav.run(all_codes, start_date=start)
+    msgs.append("近日净值已刷新")
+    # 3) 缺净值的日期用收盘价兜底（货币/短债 ETF 无净值源也由此参与估算）
+    conn = get_conn()
+    n = conn.execute(
+        "UPDATE etf_share_daily SET nav=close "
+        "WHERE nav IS NULL AND close IS NOT NULL").rowcount
+    conn.commit()
+    conn.close()
+    if n:
+        msgs.append(f"收盘价兜底 {n} 条")
+    return "; ".join(msgs) if msgs else "无需补充"
 
 
 def _metrics_update() -> str:

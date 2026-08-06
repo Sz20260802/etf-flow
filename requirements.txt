@@ -1,5 +1,8 @@
 # ETF 资金流终端 - Python 依赖
+<<<<<<< HEAD
 # 生成时间: 2026-08-06
+=======
+>>>>>>> 4f4b6a35ce65e1f77663b3e660d04baaf0f4cf86
 # 注意: starlette<1.4.0 是为了兼容 streamlit 1.61.x，避免 GZipResponder 参数错误
 
 # 核心框架

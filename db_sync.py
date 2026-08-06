@@ -5,9 +5,13 @@
 远程更新则下载替换（双库统一原子替换，带并发锁）。
 
 版本说明（2026-08 修复）：
-  1. 恢复"本地已是最新则跳过"的短路判断（避免每次冷启动重下 ~180MB）
-  2. 双库都下载成功后才统一 os.replace 替换，杜绝"新份额库+旧行情库"错配
-  3. 删除向项目根目录 copy2 的残留逻辑（避免生成未忽略的 .db 副本）
+  1. 版本比对键改为【行情(日K)日期】而非份额日期：
+     份额快照当天即出，而日K要等收盘后才发布——若用份额日期做键，
+     一旦本地份额已达该日，即使远程行情更新到同日也会被"已是最新"
+     短路跳过，导致行情永远差一天（线上已实测踩坑）。
+  2. 恢复"本地已是最新则跳过"的短路（避免每次冷启动重下 ~180MB）。
+  3. 双库都下载成功后才统一 os.replace 替换，杜绝"新份额库+旧行情库"错配。
+  4. 删除向项目根目录 copy2 的残留逻辑（避免生成未忽略的 .db 副本）。
 """
 from __future__ import annotations
 
@@ -29,17 +33,15 @@ LOCK = DATA_DIR / ".sync.lock"
 LOCAL_VER = DATA_DIR / "data_version.txt"
 
 
-def _local_share_date() -> str:
-    """读取本地 etf.db 中份额数据的最大日期（库不存在时返回空串）。"""
-    db_path = DATA_DIR / "etf.db"
-    if not db_path.exists():
+def _local_kline_date() -> str:
+    """读取本地 quotes.db 中行情(日K)的最大日期（库不存在/无数据时返回空串）。"""
+    q_path = DATA_DIR / "quotes.db"
+    if not q_path.exists():
         return ""
     try:
         import sqlite3
-        conn = sqlite3.connect(str(db_path))
-        row = conn.execute(
-            "SELECT MAX(trade_date) FROM etf_share_daily WHERE shares IS NOT NULL"
-        ).fetchone()
+        conn = sqlite3.connect(str(q_path))
+        row = conn.execute("SELECT MAX(trade_date) FROM etf_quote_daily").fetchone()
         conn.close()
         return row[0] if row and row[0] else ""
     except Exception:
@@ -85,6 +87,7 @@ def maybe_sync() -> str | None:
     """远程数据更新则同步；返回状态描述（无动作返回 None）。
 
     锁文件 20 分钟内有效，防止多会话并发下载。
+    版本键 = 行情(日K)日期（见模块 docstring，勿改回份额日期）。
     """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -93,10 +96,10 @@ def maybe_sync() -> str | None:
         st.sidebar.text("⚠️ 远程版本未获取，使用本地数据")
         return None
 
-    local = _local_share_date()
-    st.sidebar.text(f"📊 本地数据日期: {local or '无'} | 远程: {remote}")
+    local = _local_kline_date()
+    st.sidebar.text(f"📊 本地行情: {local or '无'} ｜ 远程版本: {remote}")
 
-    # 远程不新于本地且本地确有库 → 无需动作（避免每次启动重下 ~180MB）
+    # 本地行情已到远程版本 → 无需动作（避免每次启动重下 ~180MB）
     if local and local >= remote:
         st.sidebar.text("✅ 数据已是最新")
         return None

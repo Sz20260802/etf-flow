@@ -53,6 +53,18 @@ def render_sidebar() -> None:
                     st.rerun()
                 else:
                     st.warning(msg)
+
+            # ---- 指标缓存自愈：份额≥2天但缓存表为空时现场补算（一次性，秒级）
+            mkt = query("SELECT COUNT(*) n FROM market_flow_daily")["n"][0]
+            if not mkt:
+                dates = query("SELECT DISTINCT trade_date FROM etf_share_daily "
+                              "WHERE shares IS NOT NULL ORDER BY trade_date")["trade_date"].tolist()
+                if len(dates) >= 2:
+                    from metrics import update_daily_metrics
+                    with st.spinner("首次计算资金流指标（约10秒）…"):
+                        for d in dates[1:]:
+                            update_daily_metrics(d)
+                    st.rerun()
         except Exception:
             st.caption("数据库未初始化")
 

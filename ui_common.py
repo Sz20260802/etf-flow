@@ -32,15 +32,27 @@ def render_sidebar() -> None:
                        "WHERE shares IS NOT NULL")["d"][0]
             d2 = query("SELECT MAX(trade_date) d FROM etf_quote_daily")["d"][0]
             st.caption(f"份额数据：{d1 or '—'} ｜ 行情数据：{d2 or '—'}")
+            from db_sync import maybe_sync
             if "auto_update_checked" not in st.session_state:
                 st.session_state["auto_update_checked"] = True
-                from db_sync import maybe_sync
-                with st.spinner("检查远程数据更新…"):
+                with st.spinner("检查远程数据更新…（首次约1-2分钟）"):
                     msg = maybe_sync()
                 if msg:
-                    st.caption(f"🔄 {msg}")
                     if msg.startswith("✅"):
                         st.rerun()   # 新库已就位，重载页面数据
+                    else:
+                        st.warning(f"🔄 {msg}")
+            if st.button("🔄 手动同步最新数据", key="manual_sync",
+                         help="从云端拉取最新数据库（约1-2分钟）"):
+                from db_sync import _remote_version
+                st.session_state.pop("auto_update_checked", None)
+                with st.spinner("正在下载最新数据库…"):
+                    msg = maybe_sync() or "已是最新，无需同步"
+                if msg.startswith("✅"):
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.warning(msg)
         except Exception:
             st.caption("数据库未初始化")
 

@@ -25,7 +25,21 @@ def run(trade_date: str | None = None) -> dict:
     trade_date = trade_date or dt.date.today().isoformat()
     print(f"[collect_spot] 采集日期: {trade_date}")
 
-    spot = ak.fund_etf_spot_em()
+    # 东财接口偶发失败/被限流（尤其海外 IP），重试 5 次，指数退避
+    spot = None
+    last_err = None
+    for attempt in range(5):
+        try:
+            spot = ak.fund_etf_spot_em()
+            if spot is not None and len(spot) > 0:
+                break
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            print(f"[collect_spot] 第 {attempt + 1} 次尝试失败: {e!r:.120}")
+        import time as _t
+        _t.sleep(5 * (attempt + 1))
+    if spot is None or len(spot) == 0:
+        raise RuntimeError(f"东财 ETF 快照连续 5 次获取失败: {last_err!r}")
     spot = spot[["代码", "名称", "最新价", "最新份额", "流通市值"]].copy()
     spot.columns = ["code", "name", "close", "shares_raw", "float_mv"]
 

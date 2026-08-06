@@ -30,14 +30,14 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python3 daily_update.py
 
-      - name: 记录数据版本
+      - name: 记录数据版本（行情日期）
         run: |
           python3 -c "
           import sqlite3
-          c = sqlite3.connect('data/etf.db')
-          d = c.execute('SELECT MAX(trade_date) FROM etf_share_daily WHERE shares IS NOT NULL').fetchone()[0]
+          c = sqlite3.connect('data/quotes.db')
+          d = c.execute('SELECT MAX(trade_date) FROM etf_quote_daily').fetchone()[0]
           open('data_version.txt','w').write(d or '')
-          print('数据日期:', d)"
+          print('行情日期:', d)"
 
       - name: 发布最新数据库到 Release
         env:

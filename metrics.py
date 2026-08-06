@@ -15,6 +15,12 @@
 拥挤度 = 前两大流入板块净流入 / 全市场流入合计 × 100
   （口径来源：反推自原产品截图 (537+184)/856 ≈ 84.2%，与其标注的 84% 吻合）
 轮动速度 = 本期 vs 上期板块流入排名的平均变动幅度（归一化 0~100）
+
+货币/短债 ETF 口径（2026-08-06 修复）：
+  货币 ETF（如 511880，面值 100 元/份）份额申赎变动巨大，且无真实净值源
+  （仅收盘价兜底），算出的"资金流"严重失真（动辄几十亿），
+  按《AI_SETUP.md 陷阱4》与《使用手册》约定**不参与资金流统计**，
+  在 calc_daily_flow / calc_flow_table 中统一剔除。
 """
 from __future__ import annotations
 
@@ -38,6 +44,18 @@ PERIODS: dict[str, int | None] = {
     "今年来": None,
     "近12月": 240,
 }
+
+# 货币/短债 ETF 名称关键词（与 collectors/collect_bond_etf.py 保持一致）
+MONEY_KEYWORDS = ["货币", "日利", "添益", "财富宝", "日日鑫", "天天金",
+                  "增益货币", "交易货币", "添利"]
+
+
+def _exclude_money(df: pd.DataFrame) -> pd.DataFrame:
+    """剔除名称命中货币关键词的 ETF，其余原样返回。"""
+    if df is None or df.empty or "name" not in df.columns:
+        return df
+    mask = ~df["name"].str.contains("|".join(MONEY_KEYWORDS), na=False)
+    return df[mask]
 
 
 # ---------------------------------------------------------------- 基础查询
@@ -69,6 +87,7 @@ def calc_daily_flow(trade_date: str, prev_date: str | None = None) -> pd.DataFra
 
     返回列：code, name, sector, shares_prev, shares, nav, flow（亿元）
     没有前一交易日份额的 ETF（如新上市）flow 记为 NaN，不参与汇总。
+    货币/短债 ETF（无净值源、申赎口径失真）已被剔除，不返回。
     """
     if prev_date is None:
         dates = get_trade_dates(trade_date, n=2)
@@ -85,7 +104,7 @@ def calc_daily_flow(trade_date: str, prev_date: str | None = None) -> pd.DataFra
         JOIN etf_info i ON i.code = c.code
         WHERE c.trade_date = ? AND c.shares IS NOT NULL AND c.nav IS NOT NULL
     """
-    return query(sql, (prev_date, trade_date))
+    return _exclude_money(query(sql, (prev_date, trade_date)))
 
 
 def calc_flow_table(end_date: str, lookback_days: int = 250) -> pd.DataFrame:
@@ -93,14 +112,19 @@ def calc_flow_table(end_date: str, lookback_days: int = 250) -> pd.DataFrame:
 
     返回列：code, trade_date, flow（亿元）。lookback_days 取日历日冗余，
     实际按交易日截断。份额缺失的日期不产生流量记录。
+    货币/短债 ETF（无净值源、申赎口径失真）已被剔除，不返回。
     """
     start = (dt.date.fromisoformat(end_date) - dt.timedelta(days=lookback_days)).isoformat()
     df = query(
-        "SELECT code, trade_date, shares, nav, close FROM etf_share_daily "
-        "WHERE trade_date >= ? AND trade_date <= ? AND shares IS NOT NULL "
-        "ORDER BY code, trade_date",
+        "SELECT d.code, d.trade_date, d.shares, d.nav, d.close, i.name "
+        "FROM etf_share_daily d JOIN etf_info i ON i.code = d.code "
+        "WHERE d.trade_date >= ? AND d.trade_date <= ? AND d.shares IS NOT NULL "
+        "ORDER BY d.code, d.trade_date",
         (start, end_date),
     )
+    if df.empty:
+        return df
+    df = _exclude_money(df)                 # 货币/短债 ETF 不参与资金流统计
     if df.empty:
         return df
     df["shares_prev"] = df.groupby("code")["shares"].shift(1)

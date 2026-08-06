@@ -1,7 +1,7 @@
 -- ETF 资金流分析系统 · 数据库结构（SQLite）
 -- 4 张核心表：基金档案 / 每日份额与净值 / 每日行情 / 指数估值
 
-PRAGMA journal_mode = WAL;
+-- 日志模式由 db/database.py 统一控制（DELETE + 禁用 mmap，兼容 Streamlit Cloud，勿改回 WAL）
 
 -- 1. ETF 基金档案（全市场 1500+ 只，含板块归类）
 CREATE TABLE IF NOT EXISTS etf_info (

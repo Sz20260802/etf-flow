@@ -14,7 +14,7 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120   # 2026-08-07 修复：加入持仓采集后任务约60-70分钟，原45分钟会被超时掐断
     steps:
       - uses: actions/checkout@v4
 

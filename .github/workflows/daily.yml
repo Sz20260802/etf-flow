@@ -14,7 +14,7 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 120   # 2026-08-07 修复：加入持仓采集后任务约60-70分钟，原45分钟会被超时掐断
+    timeout-minutes: 120   # 加入持仓采集后任务约60-70分钟
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +24,14 @@ jobs:
 
       - name: 安装依赖
         run: pip install -r requirements.txt
+
+      - name: 下载上次 Release 数据库（关键修复：从完整库增量，避免每天从种子库重来导致中间日期丢失）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p data
+          gh release download latest-data -p "etf.db" -p "quotes.db" --dir data --clobber 2>/dev/null \
+            || echo "首次运行或暂无Release，使用仓库种子库"
 
       - name: 运行每日采集
         env:

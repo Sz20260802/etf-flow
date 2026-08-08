@@ -37,17 +37,35 @@ jobs:
               if not os.path.exists(f):
                   print(f, '不存在（会失败）'); raise SystemExit(1)
               c = sqlite3.connect(f)
-              names = [r[0] for r in c.execute('SELECT name FROM sqlite_master WHERE type=\"table\"')]
-              if 'etf_share_daily' in names:
-                  print(f, '份额最大日:', c.execute('SELECT MAX(trade_date) FROM etf_share_daily WHERE shares IS NOT NULL').fetchone()[0])
-              if 'etf_quote_daily' in names:
-                  print(f, '行情最大日:', c.execute('SELECT MAX(trade_date) FROM etf_quote_daily').fetchone()[0])
+              try:
+                  d = c.execute('SELECT MAX(trade_date) FROM etf_share_daily WHERE shares IS NOT NULL').fetchone()[0]
+                  print(f, '份额最大日:', d)
+              except Exception as e:
+                  print(f, '无份额表或查询失败:', e)
+              try:
+                  q = c.execute('SELECT MAX(trade_date) FROM etf_quote_daily').fetchone()[0]
+                  print(f, '行情最大日:', q)
+              except Exception as e:
+                  print(f, '无行情表或查询失败:', e)
           "
 
       - name: 运行每日采集
         env:
           PYTHONUNBUFFERED: "1"
         run: python3 daily_update.py
+
+      - name: 数据体检（按日覆盖 + 159813 明细）
+        run: |
+          python3 -c "
+          import sqlite3
+          c = sqlite3.connect('data/etf.db')
+          print('== 每日覆盖（近10个交易日，有份额的ETF只数）==')
+          for d, n in c.execute('SELECT trade_date, COUNT(*) FROM etf_share_daily WHERE shares IS NOT NULL GROUP BY trade_date ORDER BY trade_date DESC LIMIT 10'):
+              print(d, '只数:', n)
+          print('== 159813 最近10条份额明细 ==')
+          for r in c.execute('SELECT trade_date, shares, nav, close FROM etf_share_daily WHERE code=''159813'' ORDER BY trade_date DESC LIMIT 10'):
+              print(r)
+          "
 
       - name: 记录数据版本（行情日期）
         run: |

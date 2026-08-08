@@ -57,6 +57,7 @@ STEPS = [
     ("科创50PE(中证)",        "collectors.collect_index_val", "run_kcb_pe"),
     ("期权VIX(QVIX)",         "collectors.collect_index_val", "run_vix"),
     ("两融(沪深交易所)",      "collectors.collect_margin", "run"),
+    ("主力资金流(东财)",      "collectors.collect_fund_flow", "run"),
     ("资金流指标计算",        None, "metrics_update"),           # 自定义
 ]
 
@@ -132,7 +133,7 @@ def run_all() -> list[tuple[str, str]]:
 
 
 def _full_backfill() -> list[tuple[str, str]]:
-    """一次性全量回填：档案 + K线 + 净值 全量（持仓/债券由后续 run_all() 自动跑）。"""
+    """一次性全量回填：档案 + K线 + 净值 全量（持仓/债券/主力资金由后续 run_all() 自动跑）。"""
     from db.database import query
     from collectors import collect_spot, collect_kline, collect_nav
     steps = [

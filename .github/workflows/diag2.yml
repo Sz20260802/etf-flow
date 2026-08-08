@@ -8,6 +8,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 配置 Python
+      - name: 安装依赖
+        run: pip install requests
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"

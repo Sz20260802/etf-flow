@@ -12,7 +12,7 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -54,17 +54,13 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python3 daily_update.py
 
-      - name: 数据体检（按日覆盖 + 159813 明细）
+      - name: 生成日报（L2：每日自动产出，供AI分析）
         run: |
           python3 -c "
-          import sqlite3
-          c = sqlite3.connect('data/etf.db')
-          print('== 每日覆盖（近10个交易日，有份额的ETF只数）==')
-          for d, n in c.execute('SELECT trade_date, COUNT(*) FROM etf_share_daily WHERE shares IS NOT NULL GROUP BY trade_date ORDER BY trade_date DESC LIMIT 10'):
-              print(d, '只数:', n)
-          print('== 159813 最近10条份额明细 ==')
-          for r in c.execute('SELECT trade_date, shares, nav, close FROM etf_share_daily WHERE code=''159813'' ORDER BY trade_date DESC LIMIT 10'):
-              print(r)
+          from report import generate_report
+          open('日报.txt','w',encoding='utf-8').write(generate_report())
+          print('日报已生成:')
+          print(open('日报.txt',encoding='utf-8').read()[:500])
           "
 
       - name: 记录数据版本（行情日期）
@@ -76,9 +72,9 @@ jobs:
           open('data_version.txt','w').write(d or '')
           print('行情日期:', d)"
 
-      - name: 发布最新数据库到 Release
+      - name: 发布最新数据库与日报到 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create latest-data --title "最新数据库" --notes "自动更新" 2>/dev/null || true
-          gh release upload latest-data data/etf.db data/quotes.db data_version.txt --clobber
+          gh release upload latest-data data/etf.db data/quotes.db data_version.txt 日报.txt --clobber

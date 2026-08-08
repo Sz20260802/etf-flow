@@ -1,0 +1,26 @@
+name: 诊断-查看akshare资金流函数
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 配置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装 akshare
+        run: pip install akshare -U
+
+      - name: 列出 ETF 资金流相关函数
+        run: |
+          python3 -c "
+          import akshare as ak
+          funcs = [f for f in dir(ak) if 'etf' in f.lower() and any(k in f.lower() for k in ('flow','fund','money','jin'))]
+          print('找到', len(funcs), '个候选函数：')
+          for f in sorted(funcs):
+              print(' ', f)
+          "

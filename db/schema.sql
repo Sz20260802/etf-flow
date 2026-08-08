@@ -115,3 +115,18 @@ CREATE TABLE IF NOT EXISTS index_valuation (
     source        TEXT,
     PRIMARY KEY (index_code, trade_date)
 );
+-- 11. ETF 主力资金流（二级市场大单口径，东财 fflow 接口，窗口约120交易日）
+CREATE TABLE IF NOT EXISTS etf_fund_flow_daily (
+    code         TEXT NOT NULL,
+    trade_date   TEXT NOT NULL,
+    main_inflow  REAL,   -- 主力净流入（元）= 大单 + 超大单
+    small_inflow REAL,   -- 小单净流入（元）
+    mid_inflow   REAL,   -- 中单净流入（元）
+    large_inflow REAL,   -- 大单净流入（元）
+    super_inflow REAL,   -- 超大单净流入（元）
+    main_ratio   REAL,   -- 主力净流入占比（%）
+    close        REAL,   -- 收盘价
+    pct_chg      REAL,   -- 涨跌幅（%）
+    PRIMARY KEY (code, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_fflow_date ON etf_fund_flow_daily(trade_date);

@@ -57,7 +57,7 @@ STEPS = [
     ("科创50PE(中证)",        "collectors.collect_index_val", "run_kcb_pe"),
     ("期权VIX(QVIX)",         "collectors.collect_index_val", "run_vix"),
     ("两融(沪深交易所)",      "collectors.collect_margin", "run"),
-    ("主力资金流(东财)",      "collectors.collect_fund_flow", "run"),
+    #("主力资金流(东财)",      "collectors.collect_fund_flow", "run"),
     ("资金流指标计算",        None, "metrics_update"),           # 自定义
 ]
 

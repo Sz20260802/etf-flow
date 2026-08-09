@@ -1,0 +1,55 @@
+name: 诊断5-ETF列表与批量资金流
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 拉ETF列表并测试批量资金流
+        run: |
+          cat > /tmp/probe.py <<'EOF'
+          import requests, json
+          h = {'User-Agent':'Mozilla/5.0','Referer':'https://quote.eastmoney.com/'}
+
+          # 1) 全市场 ETF 列表（含 secid）
+          url = 'https://push2.eastmoney.com/api/qt/clist/get'
+          p = {'pn':'1','pz':'5','po':'1','np':'1','fltt':'2','invt':'2',
+               'fs':'b:MK0021,b:MK0022,b:MK0023,b:MK0024',
+               'fields':'f12,f14,f2,f3,f20'}
+          try:
+              r = requests.get(url, params=p, timeout=15, headers=h)
+              data = r.json()
+              diff = (data.get('data') or {}).get('diff') or []
+              total = (data.get('data') or {}).get('total')
+              print('ETF列表: 总数=', total, ' 本页=', len(diff))
+              for d in diff[:3]:
+                  print('   ', d.get('f12'), d.get('f14'), '最新价:', d.get('f2'))
+          except Exception as e:
+              print('ETF列表异常:', repr(e)[:200])
+
+          # 2) 批量资金流（用上面列表里的代码拼 secids 测试）
+          import requests as _r
+          codes = ['159813','511880','510300']
+          secids = ','.join(('1.' if c.startswith('5') else '0.')+c for c in codes)
+          u2 = 'https://push2.eastmoney.com/api/qt/ulist.np/get'
+          p2 = {'fltt':'2','invt':'2','fields':'f12,f14,f62,f184,f66,f72',
+                'secids': secids}
+          try:
+              r2 = _r.get(u2, params=p2, timeout=15, headers=h).json()
+              diff2 = (r2.get('data') or {}).get('diff') or []
+              print('批量资金流: 返回=', len(diff2))
+              for d in diff2:
+                  print('   ', d.get('f12'), d.get('f14'), '主力净流入(元):', d.get('f62'))
+          except Exception as e:
+              print('批量资金流异常:', repr(e)[:200])
+          EOF
+          python3 /tmp/probe.py

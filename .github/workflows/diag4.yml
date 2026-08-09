@@ -1,0 +1,39 @@
+name: 诊断4-确认ETF批量资金流字段
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 测试沪深ETF批量接口
+        run: |
+          cat > /tmp/probe.py <<'EOF'
+          import requests
+          h = {'User-Agent':'Mozilla/5.0','Referer':'https://data.eastmoney.com/'}
+          url = 'https://push2.eastmoney.com/api/qt/clist/get'
+          # 沪市ETF m:1 t:2；深市ETF m:0 t:6
+          for fs in ['m:1 t:2', 'm:0 t:6', 'm:1 t:2,m:0 t:6']:
+              p = {'pn':'1','pz':'5','po':'1','np':'1','fltt':'2','invt':'2','fid':'f62',
+                   'fs':fs,'fields':'f12,f14,f62,f66,f72,f78,f84,f124'}
+              try:
+                  r = requests.get(url, params=p, timeout=15, headers=h).json()
+                  diff = (r.get('data') or {}).get('diff') or []
+                  total = (r.get('data') or {}).get('total')
+                  print(f'fs={fs} 总数={total} 本页返回={len(diff)}')
+                  for d in diff[:3]:
+                      print('   ', d.get('f12'), d.get('f14'),
+                            '主力净流入(元):', d.get('f62'),
+                            '超大单:', d.get('f66'), '大单:', d.get('f72'))
+              except Exception as e:
+                  print(f'fs={fs} 异常: {e!r}')
+          EOF
+          python3 /tmp/probe.py
